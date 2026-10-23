@@ -128,9 +128,15 @@ class MoleculeVAE():
     def _buildDecoder(self, z, latent_rep_size, max_length, charset_length):
         h = Dense(latent_rep_size, name='latent_input', activation = 'relu')(z)
         h = RepeatVector(max_length, name='repeat_vector')(h)
-        h = GRU(501, return_sequences = True, name='gru_1')(h)
-        h = GRU(501, return_sequences = True, name='gru_2')(h)
-        h = GRU(501, return_sequences = True, name='gru_3')(h)
+        # reset_after=False is the Keras 2.3 semantics the released
+        # vae.hdf5 checkpoint was trained with. Keras 2.15 flipped the default
+        # to True, and hdf5_format._convert_rnn_weights then refuses the
+        # checkpoint ("GRU(reset_after=False) is not compatible with
+        # GRU(reset_after=True)"). Setting it explicitly both loads the
+        # checkpoint and restores the behaviour the weights actually encode.
+        h = GRU(501, return_sequences = True, name='gru_1', reset_after = False)(h)
+        h = GRU(501, return_sequences = True, name='gru_2', reset_after = False)(h)
+        h = GRU(501, return_sequences = True, name='gru_3', reset_after = False)(h)
         return TimeDistributed(Dense(charset_length), name='decoded_mean')(h) # don't do softmax, we do this in the loss now
 
     def save(self, filename):

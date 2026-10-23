@@ -113,6 +113,25 @@ All seven notebooks already carried Python 3 metadata (`python3` kernel,
 `language_info.version = 3.7.3`) and contain no Python 2 syntax, so they were
 copied unchanged.
 
+## 5. Keras 2.15 compatibility — the GRU `reset_after` fix
+
+The released `vae.hdf5` checkpoint was written by Keras 2.3, whose `GRU` had
+`reset_after=False`. Keras 2.15 flipped that default to `True`, so loading the
+checkpoint died before inference even started:
+
+```
+File "keras/src/saving/legacy/hdf5_format.py", line 662, in _convert_rnn_weights
+    raise ValueError("%s is not compatible with %s" % types)
+ValueError: GRU(reset_after=False) is not compatible with GRU(reset_after=True)
+```
+
+The fix is to build the decoder GRUs with the semantics the weights were
+actually trained with — `reset_after=False` — in `code/DLEPS/models/model_zinc.py`
+and `code/DLEPS/models/model_zinc_str.py`. This is not a loader workaround: with
+`reset_after=False` the reset gate is applied *after* the recurrent matmul,
+which is what the checkpoint encodes, so the restored model computes the
+original function.
+
 ## Verified
 
 ```
@@ -125,6 +144,14 @@ pandas 2.2.3 · scikit-learn 1.6.1 · RDKit 2023.03.3 · NLTK 3.9.1
 * The VAE graph builds: encoder 1,102,985 params (output `(None, 2)`),
   decoder 3,821,723 params (output `(None, 277, 89)`), autoencoder
   4,924,708 params.
+* `DLEPS()` instantiates and scores end to end with the released weights
+  (`vae.hdf5`, `DLEPS_30000_tune_gvae10000.h5`, `denseweight.h5`,
+  `gene_info.txt`).
+* With the VAE sampling noise switched off, the final enrichment scores of
+  this Keras build and of the ONNX build
+  ([`kekegg/DLEPS_onnx`](https://github.com/kekegg/DLEPS_onnx)) are
+  **bit-for-bit identical** — max absolute difference `0.000e+00` over a
+  mixed set of molecules against the `BROWNING` signature.
 
 ---
 
@@ -191,8 +218,9 @@ The weights are **not** in this repository. Download them from the project
 drive and place them in `data/`:
 
 ```
-denseweight.h5
-DLEPS_30000_tune_gvae10000.h5
+denseweight.h5                    # 92 MB, maps the 978 predicted genes onto 12,328 genes
+DLEPS_30000_tune_gvae10000.h5    # 61 MB, the expression head
+vae.hdf5                          # 58 MB, the zinc-grammar VAE (loaded by molecule_vae.py)
 SMILE_train_demo.h5
 SMILE_test_demo.h5
 RNA_train_demo.h5
@@ -201,7 +229,11 @@ RNA_test_demo.h5
 
 https://drive.google.com/drive/folders/1Fye5Bn_ZkT_wjZJIWTcj4RqGXZq-nd4L
 
-`benchmark.csv` is in the `data/` folder.
+`benchmark.csv` and `gene_info.txt` are in the `data/` folder.
+
+> `DLEPS()` reads `vae.hdf5` at construction time and `denseweight.h5` /
+> `gene_info.txt` immediately after, so all three must be in `data/` before the
+> model can be instantiated.
 
 ## Repository layout
 
@@ -216,7 +248,7 @@ code/DLEPS/            # the model (Python 3)
 └── models/            # model definitions (Keras)
 code/Preprocess/       # R + notebook preprocessing
 code/analysis_plot/    # analysis notebooks
-data/                  # inputs, gene signatures, benchmark
+data/                  # inputs, gene signatures, benchmark, gene_info
 ```
 
 # License
